@@ -29,18 +29,57 @@ const (
 	ScopeSend = "send"
 )
 
+// Addresses is one or more email addresses.
+//
+// Its underlying type is []string, so a slice literal assigns directly:
+//
+//	To: []string{"a@example.com", "b@example.com"},
+//
+// For the common single-address case, [Address] reads better:
+//
+//	To: announcer.Address("a@example.com"),
+type Addresses []string
+
+// Address wraps one address, for the common case.
+func Address(address string) Addresses { return Addresses{address} }
+
+// AddressList wraps several addresses.
+func AddressList(addresses ...string) Addresses { return addresses }
+
+// First returns the first address, or "" when there are none.
+func (a Addresses) First() string {
+	if len(a) == 0 {
+		return ""
+	}
+	return a[0]
+}
+
 // SendEmailRequest is one email to send.
 //
-// From and To accept either a bare address (billing@acme.com) or a display
+// Every address accepts either a bare address (billing@acme.com) or a display
 // name (Acme Billing <billing@acme.com>). At least one of Text or HTML is
-// required. Announcer takes exactly one recipient per call — use
-// EmailsService.SendMany to fan out.
+// required, and at most 50 addresses across To, Cc and Bcc combined.
+//
+// To and Cc go out as one email whose recipients see each other; Bcc
+// recipients see nobody. For separate emails that share nothing, use
+// EmailsService.SendMany.
 type SendEmailRequest struct {
 	// From is the sender. Its domain must be registered to this account.
 	From string `json:"from"`
 
-	// To is the single recipient.
-	To string `json:"to"`
+	// To holds the primary recipients. At least one is required.
+	To Addresses `json:"to"`
+
+	// Cc holds carbon copies, visible to every other recipient.
+	Cc Addresses `json:"cc,omitempty"`
+
+	// Bcc holds blind copies. They receive the message; nobody — including
+	// the other blind copies — sees that they did.
+	Bcc Addresses `json:"bcc,omitempty"`
+
+	// ReplyTo is where replies should go. A header only: no delivery, nothing
+	// billable, nothing that can bounce.
+	ReplyTo Addresses `json:"reply_to,omitempty"`
 
 	Subject string `json:"subject,omitempty"`
 
@@ -71,6 +110,15 @@ type SentEmail struct {
 	// IdempotentReplay is true when this key had already been used: nothing
 	// was sent a second time and these are the original send's details.
 	IdempotentReplay bool `json:"idempotentReplay"`
+
+	// Recipients is how many addresses the message went to, across To, Cc and
+	// Bcc. This is the number billed and counted against quota.
+	Recipients int `json:"recipients"`
+
+	// Suppressed holds addresses dropped because they are on the account's
+	// suppression list. Empty on a clean send — the rest of the message still
+	// went out. Only when every recipient is suppressed does the send fail.
+	Suppressed []string `json:"suppressed"`
 }
 
 // Message is one row of send history.
@@ -80,11 +128,26 @@ type SentEmail struct {
 // vocabulary, while the webhook payload already says from/to — one vocabulary
 // is worth the mapping.
 type Message struct {
-	ID        string    `json:"id"`
-	MessageID *string   `json:"message_id"`
-	From      string    `json:"header_from"`
-	To        string    `json:"recipient"`
-	Subject   *string   `json:"subject"`
+	ID        string  `json:"id"`
+	MessageID *string `json:"message_id"`
+	From      string  `json:"header_from"`
+
+	// To is the primary recipient — the first To address. A message with Cc,
+	// Bcc or several To addresses reports its first here and the total in
+	// RecipientCount.
+	To string `json:"recipient"`
+
+	// RecipientCount is how many addresses the message went to, across To, Cc
+	// and Bcc.
+	RecipientCount int `json:"recipient_count"`
+
+	// ReplyTo is the Reply-To header that went out, if any.
+	ReplyTo *string `json:"reply_to"`
+
+	Subject *string `json:"subject"`
+
+	// Status is the rolled-up status. One bounced recipient makes the whole
+	// message bounced — it is the thing you have to act on.
 	Status    string    `json:"status"`
 	CreatedAt time.Time `json:"created_at"`
 }

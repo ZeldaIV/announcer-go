@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -170,7 +171,7 @@ func TestSend(t *testing.T) {
 
 	sent, err := client.Send(context.Background(), &SendEmailRequest{
 		From:    "Acme <billing@acme.test>",
-		To:      "customer@example.com",
+		To:      Address("customer@example.com"),
 		Subject: "Your receipt",
 		Text:    "Thanks!",
 	})
@@ -186,8 +187,17 @@ func TestSend(t *testing.T) {
 		t.Errorf("Authorization = %q", got)
 	}
 	body := decodeBody(t, call.body)
-	if body["from"] != "Acme <billing@acme.test>" || body["to"] != "customer@example.com" {
+	if body["from"] != "Acme <billing@acme.test>" {
 		t.Errorf("body = %v", body)
+	}
+	if got := body["to"]; !reflect.DeepEqual(got, []any{"customer@example.com"}) {
+		t.Errorf("to = %#v", got)
+	}
+	// Headers the caller left unset must not appear at all.
+	for _, absent := range []string{"cc", "bcc", "reply_to"} {
+		if _, present := body[absent]; present {
+			t.Errorf("%s should be omitted when unset", absent)
+		}
 	}
 	// IdempotencyKey is json:"-" and must not leak into the payload.
 	if _, present := body["IdempotencyKey"]; present {
@@ -207,7 +217,7 @@ func TestSendGeneratesAnIdempotencyKey(t *testing.T) {
 	client := testClient(t, rec)
 
 	if _, err := client.Send(context.Background(), &SendEmailRequest{
-		From: "a@acme.test", To: "b@example.com", Text: "hi",
+		From: "a@acme.test", To: Address("b@example.com"), Text: "hi",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +232,7 @@ func TestSendPassesASuppliedKeyThrough(t *testing.T) {
 	client := testClient(t, rec)
 
 	if _, err := client.Send(context.Background(), &SendEmailRequest{
-		From: "a@acme.test", To: "b@example.com", Text: "hi", IdempotencyKey: "order-4711",
+		From: "a@acme.test", To: Address("b@example.com"), Text: "hi", IdempotencyKey: "order-4711",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +249,7 @@ func TestSendReportsAnIdempotentReplay(t *testing.T) {
 	client := testClient(t, rec)
 
 	sent, err := client.Send(context.Background(), &SendEmailRequest{
-		From: "a@acme.test", To: "b@example.com", Text: "hi", IdempotencyKey: "k",
+		From: "a@acme.test", To: Address("b@example.com"), Text: "hi", IdempotencyKey: "k",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -251,9 +261,9 @@ func TestSendReportsAnIdempotentReplay(t *testing.T) {
 
 func TestSendValidatesBeforeSpendingACall(t *testing.T) {
 	cases := map[string]*SendEmailRequest{
-		"no from": {To: "b@example.com", Text: "hi"},
+		"no from": {To: Address("b@example.com"), Text: "hi"},
 		"no to":   {From: "a@acme.test", Text: "hi"},
-		"no body": {From: "a@acme.test", To: "b@example.com", Subject: "empty"},
+		"no body": {From: "a@acme.test", To: Address("b@example.com"), Subject: "empty"},
 		"nil":     nil,
 	}
 
@@ -325,7 +335,7 @@ func TestSendManyDerivesAKeyPerRecipient(t *testing.T) {
 		t.Errorf("second key = %q", got)
 	}
 	// The caller's struct must come back untouched.
-	if msg.To != "" || msg.IdempotencyKey != "digest-2026-09-01" {
+	if len(msg.To) != 0 || msg.IdempotencyKey != "digest-2026-09-01" {
 		t.Errorf("SendMany mutated the caller's request: %+v", msg)
 	}
 }
@@ -506,7 +516,7 @@ func TestErrorMapping(t *testing.T) {
 			client := testClient(t, rec)
 
 			_, err := client.Send(context.Background(), &SendEmailRequest{
-				From: "a@acme.test", To: "b@example.com", Text: "hi",
+				From: "a@acme.test", To: Address("b@example.com"), Text: "hi",
 			})
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("errors.Is(%v, %v) = false", err, tc.want)
@@ -523,7 +533,7 @@ func TestValidationErrorCarriesTheFieldMessages(t *testing.T) {
 	client := testClient(t, rec)
 
 	_, err := client.Send(context.Background(), &SendEmailRequest{
-		From: "nonsense", To: "b@example.com", Text: "hi",
+		From: "nonsense", To: Address("b@example.com"), Text: "hi",
 	})
 
 	var apiErr *Error
@@ -546,7 +556,7 @@ func TestSuppressedRecipientIsAlsoUnprocessable(t *testing.T) {
 	client := testClient(t, rec)
 
 	_, err := client.Send(context.Background(), &SendEmailRequest{
-		From: "a@acme.test", To: "bounced@example.com", Text: "hi",
+		From: "a@acme.test", To: Address("bounced@example.com"), Text: "hi",
 	})
 
 	if !errors.Is(err, ErrSuppressedRecipient) {
@@ -646,7 +656,7 @@ func TestRetriesA500(t *testing.T) {
 	client := testClient(t, rec, WithMaxRetries(2))
 
 	sent, err := client.Send(context.Background(), &SendEmailRequest{
-		From: "a@acme.test", To: "b@example.com", Text: "hi",
+		From: "a@acme.test", To: Address("b@example.com"), Text: "hi",
 	})
 	if err != nil {
 		t.Fatalf("Send: %v", err)
@@ -664,7 +674,7 @@ func TestRetriesReuseTheSameIdempotencyKey(t *testing.T) {
 	client := testClient(t, rec, WithMaxRetries(2))
 
 	if _, err := client.Send(context.Background(), &SendEmailRequest{
-		From: "a@acme.test", To: "b@example.com", Text: "hi",
+		From: "a@acme.test", To: Address("b@example.com"), Text: "hi",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -686,7 +696,7 @@ func TestConflictOnSendIsRetried(t *testing.T) {
 	client := testClient(t, rec, WithMaxRetries(2))
 
 	sent, err := client.Send(context.Background(), &SendEmailRequest{
-		From: "a@acme.test", To: "b@example.com", Text: "hi",
+		From: "a@acme.test", To: Address("b@example.com"), Text: "hi",
 	})
 	if err != nil {
 		t.Fatalf("Send: %v", err)
@@ -717,7 +727,7 @@ func TestValidationIsNotRetried(t *testing.T) {
 	client := testClient(t, rec, WithMaxRetries(2))
 
 	if _, err := client.Send(context.Background(), &SendEmailRequest{
-		From: "junk", To: "b@example.com", Text: "hi",
+		From: "junk", To: Address("b@example.com"), Text: "hi",
 	}); !errors.Is(err, ErrValidation) {
 		t.Fatalf("expected ErrValidation, got %v", err)
 	}
@@ -763,5 +773,137 @@ func TestContextCancellationStopsTheRetryLoop(t *testing.T) {
 	_, err := client.Usage(ctx)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected the context error to surface, got %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Recipients: cc, bcc, reply-to
+
+func TestSendCarriesCcBccAndReplyTo(t *testing.T) {
+	rec := newRecorder(t, stubResponse{
+		body: `{"id":"m","status":"sent","recipients":4}`,
+	})
+	client := testClient(t, rec)
+
+	sent, err := client.Send(context.Background(), &SendEmailRequest{
+		From:    "billing@acme.test",
+		To:      []string{"a@example.com", "b@example.com"},
+		Cc:      Address("accounting@acme.test"),
+		Bcc:     AddressList("archive@acme.test"),
+		ReplyTo: Address("support@acme.test"),
+		Subject: "Your receipt",
+		Text:    "Thanks!",
+	})
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+
+	body := decodeBody(t, rec.call(0).body)
+	want := map[string]any{
+		"from":     "billing@acme.test",
+		"to":       []any{"a@example.com", "b@example.com"},
+		"cc":       []any{"accounting@acme.test"},
+		"bcc":      []any{"archive@acme.test"},
+		"reply_to": []any{"support@acme.test"},
+		"subject":  "Your receipt",
+		"text":     "Thanks!",
+	}
+	if !reflect.DeepEqual(body, want) {
+		t.Errorf("body = %#v\nwant %#v", body, want)
+	}
+	if sent.Recipients != 4 {
+		t.Errorf("Recipients = %d, want 4", sent.Recipients)
+	}
+}
+
+func TestSendNeedsAtLeastOneRecipient(t *testing.T) {
+	rec := newRecorder(t)
+	client := testClient(t, rec)
+
+	_, err := client.Send(context.Background(), &SendEmailRequest{
+		From: "a@acme.test",
+		To:   Addresses{},
+		Text: "hi",
+	})
+	if err == nil {
+		t.Fatal("expected a validation error")
+	}
+	if rec.count() != 0 {
+		t.Errorf("should not have called the API, made %d calls", rec.count())
+	}
+}
+
+func TestSendReportsPartiallySuppressedRecipients(t *testing.T) {
+	rec := newRecorder(t, stubResponse{
+		body: `{"id":"m","status":"sent","recipients":2,"suppressed":["dead@example.com"]}`,
+	})
+	client := testClient(t, rec)
+
+	sent, err := client.Send(context.Background(), &SendEmailRequest{
+		From: "a@acme.test",
+		To:   []string{"good@example.com", "dead@example.com"},
+		Cc:   Address("copied@example.com"),
+		Text: "hi",
+	})
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+
+	// The message still went out; only the bad address was dropped.
+	if sent.Recipients != 2 {
+		t.Errorf("Recipients = %d, want 2", sent.Recipients)
+	}
+	if !reflect.DeepEqual(sent.Suppressed, []string{"dead@example.com"}) {
+		t.Errorf("Suppressed = %#v", sent.Suppressed)
+	}
+}
+
+func TestFullySuppressedSendListsEveryRefusedAddress(t *testing.T) {
+	rec := newRecorder(t, stubResponse{
+		status: 422,
+		body: `{"status":422,"detail":"All 2 recipients are on your suppression list.",` +
+			`"suppressed":["one@example.com","two@example.com"]}`,
+	})
+	client := testClient(t, rec)
+
+	_, err := client.Send(context.Background(), &SendEmailRequest{
+		From: "a@acme.test",
+		To:   []string{"one@example.com", "two@example.com"},
+		Text: "hi",
+	})
+
+	if !errors.Is(err, ErrSuppressedRecipient) {
+		t.Fatalf("expected ErrSuppressedRecipient, got %v", err)
+	}
+	var apiErr *Error
+	errors.As(err, &apiErr)
+	// Read from the API's extension member, not parsed out of the prose.
+	if !reflect.DeepEqual(apiErr.Suppressed, []string{"one@example.com", "two@example.com"}) {
+		t.Errorf("Suppressed = %#v", apiErr.Suppressed)
+	}
+	if apiErr.Recipient != "one@example.com" {
+		t.Errorf("Recipient = %q", apiErr.Recipient)
+	}
+}
+
+func TestMessageListReportsThePrimaryAndTheCount(t *testing.T) {
+	rec := newRecorder(t, stubResponse{body: `[{
+		"id":"m1","message_id":"<x@acme.test>","header_from":"billing@acme.test",
+		"recipient":"primary@example.com","recipient_count":3,"reply_to":"support@acme.test",
+		"subject":"Receipt","status":"delivered","created_at":"2026-09-01T10:00:00Z"
+	}]`})
+	client := testClient(t, rec)
+
+	messages, err := client.Emails.List(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := messages[0]
+	if m.To != "primary@example.com" || m.RecipientCount != 3 {
+		t.Errorf("to=%q count=%d", m.To, m.RecipientCount)
+	}
+	if m.ReplyTo == nil || *m.ReplyTo != "support@acme.test" {
+		t.Errorf("ReplyTo = %v", m.ReplyTo)
 	}
 }

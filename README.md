@@ -29,7 +29,7 @@ func main() {
 
 	sent, err := client.Send(context.Background(), &announcer.SendEmailRequest{
 		From:    "Acme <billing@acme.com>",
-		To:      "customer@example.com",
+		To:      announcer.Address("customer@example.com"),
 		Subject: "Your receipt",
 		Text:    "Thanks for your order.",
 		HTML:    "<p>Thanks for your order.</p>",
@@ -44,6 +44,11 @@ func main() {
 
 That's the whole integration. Pass the key to `New` explicitly if you would
 rather not use the environment.
+
+`To`, `Cc` and `Bcc` are `announcer.Addresses`, whose underlying type is
+`[]string` — so `announcer.Address("one@example.com")` and
+`[]string{"a@example.com", "b@example.com"}` both assign directly. See
+[Several recipients](#several-recipients).
 
 ## Before your first send
 
@@ -130,9 +135,33 @@ webhook payload says. Timestamps are `time.Time`, nullable ones are
 
 ## Several recipients
 
-Announcer sends to one recipient per call — no CC, no BCC. `SendMany` fans out
-and hands back a result per recipient, so one suppressed address does not sink
-the batch:
+`To`, `Cc` and `Bcc` each take one address or many. Everything in `To` and `Cc`
+is **one email** whose recipients see each other; `Bcc` recipients see nobody,
+not even each other:
+
+```go
+sent, err := client.Send(ctx, &announcer.SendEmailRequest{
+	From:    "billing@acme.com",
+	To:      []string{"customer@example.com", "partner@example.com"},
+	Cc:      announcer.Address("accounting@acme.com"),
+	Bcc:     announcer.Address("archive@acme.com"),
+	ReplyTo: announcer.Address("support@acme.com"),
+	Subject: "Your receipt",
+	Text:    "Thanks!",
+})
+```
+
+At most 50 addresses across the three. `ReplyTo` is a header only — it costs
+nothing and cannot bounce.
+
+**Recipients are the billable unit.** That call counts four against your quota,
+not one. It is also what keeps `MonthlyHardCap` meaningful: otherwise a leaked
+key could send fifty times your ceiling by padding the slice.
+
+### One email, or many?
+
+For anything list-shaped — a newsletter, a digest, a fan-out — you want
+`SendMany`, not a slice:
 
 ```go
 results, err := client.Emails.SendMany(ctx,
@@ -152,8 +181,36 @@ for _, r := range results {
 }
 ```
 
-Each recipient gets its own derived idempotency key, your request struct is
-left untouched, and no recipient can see the others.
+|  | `To: []string{a, b}` | `SendMany([]string{a, b}, …)` |
+|---|---|---|
+| Emails sent | one | two |
+| Do they see each other? | yes, in `To:` | no |
+| API requests | one | two |
+| Idempotency key | one | one each, derived |
+| One address fails | the send reports it | the others are unaffected |
+
+Each `SendMany` recipient gets its own derived idempotency key, and your
+request struct is left untouched.
+
+### Suppressed recipients
+
+A recipient on your suppression list is dropped and the rest still goes out:
+
+```go
+sent, err := client.Send(ctx, &announcer.SendEmailRequest{
+	From:    "billing@acme.com",
+	To:      []string{"good@example.com", "bounced-before@example.com"},
+	Subject: "Your receipt",
+	Text:    "Thanks!",
+})
+
+sent.Recipients // 1 — what actually went out and what you were billed
+sent.Suppressed // ["bounced-before@example.com"]
+```
+
+`ErrSuppressedRecipient` is returned only when *every* recipient is suppressed
+(or every `To` recipient — a message with no visible primary recipient is
+refused rather than sent). `Error.Suppressed` names them all.
 
 ## Webhooks
 
@@ -230,8 +287,8 @@ Every call takes a `context.Context` first.
 |------|------|
 | `client.Send(ctx, msg)` | Shorthand for `Emails.Send`. |
 | `client.Usage(ctx)` | Quota consumption plus a 14-day sending series. |
-| `Emails.Send(ctx, msg)` | Sends one email. |
-| `Emails.SendMany(ctx, to, msg, opts)` | One call per recipient, result per recipient. |
+| `Emails.Send(ctx, msg)` | Sends one email. `To`/`Cc`/`Bcc` take one address or many. |
+| `Emails.SendMany(ctx, to, msg, opts)` | Separate emails, one per recipient. |
 | `Emails.List(ctx, opts)` | Send history. |
 | `Emails.Events(ctx, id)` | A message's audit trail. |
 | `Domains.Create(ctx, domain)` | Registers a domain, returns the DNS record. |

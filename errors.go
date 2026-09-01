@@ -88,8 +88,15 @@ type Error struct {
 	// RetryAfter is set on a 429, from the Retry-After header.
 	RetryAfter time.Duration
 
-	// Recipient is set when a send was refused because the address is suppressed.
+	// Recipient is set when a send was refused because the address is
+	// suppressed. It is the first entry of Suppressed when the API named any,
+	// and otherwise the address the SDK sent.
 	Recipient string
+
+	// Suppressed holds every address the API refused, from the RFC 9457
+	// extension member on a suppression refusal. Prefer it over parsing
+	// Message: it is there precisely so clients need not read the prose.
+	Suppressed []string
 
 	// RequestID is the response's x-request-id. Quote it in support.
 	RequestID string
@@ -123,6 +130,8 @@ type problemBody struct {
 	Detail string              `json:"detail"`
 	Errors map[string][]string `json:"errors"`
 	Error  string              `json:"error"`
+	// Extension member on a suppression refusal: the addresses refused.
+	Suppressed []string `json:"suppressed"`
 }
 
 // genericMessage is the wording for a status that arrived with no usable body.
@@ -212,6 +221,10 @@ func newAPIError(status int, raw []byte, header http.Header, path, recipient str
 		// 422 is a plain unprocessable (domain limit, failed verification).
 		if path == pathEmails {
 			e.Recipient = recipient
+			if body != nil && len(body.Suppressed) > 0 {
+				e.Suppressed = body.Suppressed
+				e.Recipient = body.Suppressed[0]
+			}
 			e.kinds = []error{ErrSuppressedRecipient, ErrUnprocessable}
 		} else {
 			e.kinds = []error{ErrUnprocessable}
