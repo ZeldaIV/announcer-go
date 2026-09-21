@@ -33,7 +33,7 @@ import (
 const DefaultBaseURL = "https://mail.misralo.com"
 
 // Version is this SDK's version, reported in the User-Agent.
-const Version = "0.1.0"
+const Version = "0.1.1"
 
 // Client talks to the Announcer API. Build one with New.
 type Client struct {
