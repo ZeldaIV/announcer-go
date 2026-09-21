@@ -319,17 +319,6 @@ key, err := client.APIKeys.Create(ctx, "production-worker", announcer.ScopeSend)
 A leaked send key cannot register domains, mint successor keys, or touch
 billing. It is the difference between an incident and a catastrophe.
 
-## Local development
-
-Point the SDK at a local Announcer stack:
-
-```go
-client, err := announcer.New(
-	"ann_dev_0000000000000000000000000000",
-	announcer.WithBaseURL("http://localhost:8080"),
-)
-```
-
 ## Contributing
 
 ```bash

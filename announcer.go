@@ -65,8 +65,8 @@ type Client struct {
 // Option configures a Client.
 type Option func(*Client)
 
-// WithBaseURL points the client at a different API root — a self-hosted
-// instance, or http://localhost:8080 for a local stack.
+// WithBaseURL points the client at a different API root, such as a mock
+// server in tests.
 func WithBaseURL(baseURL string) Option {
 	return func(c *Client) { c.baseURL = strings.TrimRight(baseURL, "/") }
 }
