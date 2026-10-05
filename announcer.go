@@ -11,10 +11,12 @@
 //
 //	sent, err := client.Send(ctx, &announcer.SendEmailRequest{
 //	    From:    "Acme <billing@acme.com>",
-//	    To:      "customer@example.com",
+//	    To:      announcer.Address("customer@example.com"),
 //	    Subject: "Your receipt",
 //	    Text:    "Thanks for your order.",
 //	})
+//
+// Files go in Attachments as their bytes; see [Attachment].
 //
 // Every send carries an Idempotency-Key, generated per call when you do not
 // supply one, so the SDK's automatic retries can never send twice.

@@ -129,7 +129,8 @@ both `ErrSuppressedRecipient` and the broader `ErrUnprocessable`.
 
 **Field names make sense.** The API calls them `header_from` and `recipient`;
 the SDK calls them `From` and `To`, matching what you used to send and what the
-webhook payload says. Timestamps are `time.Time`, nullable ones are
+webhook payload says, and `AttachmentCount` says how many files a message
+carried. Timestamps are `time.Time`, nullable ones are
 `*time.Time`, and the booleans you want are methods: `domain.Verified()`,
 `key.Revoked()`, `endpoint.Disabled()`.
 
@@ -307,7 +308,7 @@ Every call takes a `context.Context` first.
 |------|------|
 | `client.Send(ctx, msg)` | Shorthand for `Emails.Send`. |
 | `client.Usage(ctx)` | Quota consumption plus a 14-day sending series. |
-| `Emails.Send(ctx, msg)` | Sends one email. `To`/`Cc`/`Bcc` take one address or many. |
+| `Emails.Send(ctx, msg)` | Sends one email. `To`/`Cc`/`Bcc` take one address or many; `Attachments` take the file's bytes. |
 | `Emails.SendMany(ctx, to, msg, opts)` | Separate emails, one per recipient. |
 | `Emails.List(ctx, opts)` | Send history. |
 | `Emails.Events(ctx, id)` | A message's audit trail. |
