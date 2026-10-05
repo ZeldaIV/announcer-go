@@ -44,6 +44,17 @@ func validateSend(req *SendEmailRequest) error {
 // To and Cc go out as one email whose recipients see each other; Bcc
 // recipients see nobody. At most 50 addresses across the three.
 //
+// Attachments take the file's bytes:
+//
+//	pdf, _ := os.ReadFile("invoice.pdf")
+//	sent, err := client.Emails.Send(ctx, &announcer.SendEmailRequest{
+//	    From:        "billing@acme.com",
+//	    To:          announcer.Address("customer@example.com"),
+//	    Subject:     "Invoice 1042",
+//	    Text:        "Your invoice is attached.",
+//	    Attachments: []announcer.Attachment{{Filename: "invoice-1042.pdf", Content: pdf}},
+//	})
+//
 // An Idempotency-Key is generated when SendEmailRequest.IdempotencyKey is
 // empty, so the SDK's automatic retries can never send twice. Set it yourself
 // — an order id, a job id — to extend that guarantee across process restarts.

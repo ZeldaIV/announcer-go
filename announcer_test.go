@@ -890,6 +890,7 @@ func TestMessageListReportsThePrimaryAndTheCount(t *testing.T) {
 	rec := newRecorder(t, stubResponse{body: `[{
 		"id":"m1","message_id":"<x@acme.test>","header_from":"billing@acme.test",
 		"recipient":"primary@example.com","recipient_count":3,"reply_to":"support@acme.test",
+		"attachment_count":2,
 		"subject":"Receipt","status":"delivered","created_at":"2026-09-01T10:00:00Z"
 	}]`})
 	client := testClient(t, rec)
@@ -905,5 +906,38 @@ func TestMessageListReportsThePrimaryAndTheCount(t *testing.T) {
 	}
 	if m.ReplyTo == nil || *m.ReplyTo != "support@acme.test" {
 		t.Errorf("ReplyTo = %v", m.ReplyTo)
+	}
+	if m.AttachmentCount != 2 {
+		t.Errorf("AttachmentCount = %d, want 2", m.AttachmentCount)
+	}
+}
+
+func TestSendEncodesAttachmentsAsBase64(t *testing.T) {
+	rec := newRecorder(t, stubResponse{body: `{"id":"m","status":"sent"}`})
+	client := testClient(t, rec)
+
+	_, err := client.Send(context.Background(), &SendEmailRequest{
+		From: "billing@acme.test",
+		To:   Address("customer@example.com"),
+		Text: "Attached.",
+		Attachments: []Attachment{
+			{Filename: "a.pdf", Content: []byte{0x25, 0x50, 0x44, 0x46, 0x00, 0xff}},
+			{Filename: "logo.png", Content: []byte("png"), ContentType: "image/png", ContentID: "logo"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+
+	body := decodeBody(t, rec.call(0).body)
+	want := []any{
+		map[string]any{"filename": "a.pdf", "content": "JVBERgD/"},
+		map[string]any{
+			"filename": "logo.png", "content": "cG5n",
+			"content_type": "image/png", "content_id": "logo",
+		},
+	}
+	if !reflect.DeepEqual(body["attachments"], want) {
+		t.Errorf("attachments = %#v\nwant %#v", body["attachments"], want)
 	}
 }

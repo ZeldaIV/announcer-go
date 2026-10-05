@@ -90,11 +90,37 @@ type SendEmailRequest struct {
 	// HTML is the HTML body.
 	HTML string `json:"html,omitempty"`
 
+	// Attachments are files to attach, or images for the HTML to show
+	// inline. At most 20, and 10 MB per message in all, Text and HTML
+	// included. Executables (.exe, .js, .bat, ...) are refused, because Gmail
+	// and most mail servers would refuse them anyway.
+	Attachments []Attachment `json:"attachments,omitempty"`
+
 	// IdempotencyKey makes the send exactly-once. Left empty, the SDK
 	// generates one per call so its own retries cannot double-send; set it
 	// yourself (an order id, a job id) to keep that guarantee across process
 	// restarts. Not serialised — it travels as a header.
 	IdempotencyKey string `json:"-"`
+}
+
+// Attachment is a file to attach, or an image for the HTML to show inline.
+//
+// Attachments are sent and never stored: not their contents, and not their
+// names.
+type Attachment struct {
+	// Filename is the name the recipient sees, with its extension.
+	Filename string `json:"filename"`
+
+	// Content is the file's bytes. encoding/json writes a []byte as base64,
+	// which is what the API takes, so pass the bytes as they are.
+	Content []byte `json:"content"`
+
+	// ContentType is the media type. Guessed from Filename when empty.
+	ContentType string `json:"content_type,omitempty"`
+
+	// ContentID makes this an inline image: the HTML shows it as
+	// <img src="cid:logo"> when this is "logo".
+	ContentID string `json:"content_id,omitempty"`
 }
 
 // SentEmail is the result of a successful send.
@@ -140,6 +166,10 @@ type Message struct {
 	// RecipientCount is how many addresses the message went to, across To, Cc
 	// and Bcc.
 	RecipientCount int `json:"recipient_count"`
+
+	// AttachmentCount is how many files were attached. Their names and
+	// contents are not kept.
+	AttachmentCount int `json:"attachment_count"`
 
 	// ReplyTo is the Reply-To header that went out, if any.
 	ReplyTo *string `json:"reply_to"`

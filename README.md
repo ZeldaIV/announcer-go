@@ -133,6 +133,26 @@ webhook payload says. Timestamps are `time.Time`, nullable ones are
 `*time.Time`, and the booleans you want are methods: `domain.Verified()`,
 `key.Revoked()`, `endpoint.Disabled()`.
 
+## Attachments
+
+Pass the file's bytes; `encoding/json` does the base64.
+
+```go
+pdf, err := os.ReadFile("invoice.pdf")
+if err != nil {
+    return err
+}
+_, err = client.Send(ctx, &announcer.SendEmailRequest{
+    From:        "billing@acme.com",
+    To:          announcer.Address("customer@example.com"),
+    Subject:     "Invoice 1042",
+    Text:        "Your invoice is attached.",
+    Attachments: []announcer.Attachment{{Filename: "invoice-1042.pdf", Content: pdf}},
+})
+```
+
+At most 20 files and 10 MB per message, text and HTML included. Add a `ContentID` to show an image inline with `<img src="cid:logo">`. Attachments are sent and never stored, and executables are refused.
+
 ## Several recipients
 
 `To`, `Cc` and `Bcc` each take one address or many. Everything in `To` and `Cc`
